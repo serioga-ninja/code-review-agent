@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
-import { getDiff, getChangedFiles } from "./git";
+import { getChangedFiles, getDiff } from "./git.js";
+import { reviewDiff } from "./reviewer.js";
 
 const program = new Command();
 
@@ -8,19 +9,23 @@ program
   .name("review")
   .description("AI-агент для архітектурного рев'ю коду")
   .action(async () => {
-    try {
-      const diff = await getDiff();
-      const files = await getChangedFiles();
+    const diff = await getDiff();
+    const files = await getChangedFiles();
 
-      console.log(`Знайдено змін у ${files.length} файлах:`);
-      files.forEach((f) => console.log(`  - ${f}`));
-      console.log("\n--- Diff (перевірка) ---\n");
-      console.log(diff.slice(0, 500) + "...");
+    console.log(`Аналізую зміни у ${files.length} файлах...\n`);
 
-      // тут далі підключимо виклик Claude API
-    } catch (err) {
-      console.error("Помилка:", (err as Error).message);
-      process.exit(1);
+    const issues = await reviewDiff(diff);
+
+    if (issues.length === 0) {
+      console.log("✅ Архітектурних проблем не знайдено.");
+    } else {
+      issues.forEach((issue, i) => {
+        const icon =
+          issue.severity === "critical" ? "🔴" : issue.severity === "warning" ? "🟡" : "🔵";
+        console.log(`${icon} [${issue.severity.toUpperCase()}] ${issue.file}`);
+        console.log(`   ${issue.description}`);
+        console.log(`   → ${issue.suggestion}\n`);
+      });
     }
   });
 
