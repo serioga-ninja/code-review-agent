@@ -3,10 +3,9 @@ import simpleGit from "simple-git";
 const git = simpleGit();
 
 export async function getDiff(): Promise<string> {
-  // staged + unstaged зміни відносно HEAD
   const diff = await git.diff(["HEAD"]);
   if (!diff.trim()) {
-    throw new Error("Немає змін для рев'ю. Внеси правки перед запуском.");
+    throw new Error("No changes to review. Make some edits before running this.");
   }
   return diff;
 }
