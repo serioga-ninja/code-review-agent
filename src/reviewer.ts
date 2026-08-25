@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { ReviewConfig } from "./config";
+import { ReviewConfig } from "./config.js";
+import { parseIssuesResponse } from "./parseIssues.js";
 
 const anthropic = new Anthropic(); // reads ANTHROPIC_API_KEY from env
 
@@ -38,20 +39,34 @@ file, severity ("critical"|"warning"|"suggestion"), description, suggestion.
 If there are no issues, return {"issues": []}. Respond with JSON only.`;
 }
 
-export async function reviewDiff(diff: string, config: ReviewConfig): Promise<ReviewIssue[]> {
+async function callModel(systemPrompt: string, userMessage: string): Promise<string> {
   const response = await anthropic.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 4000,
-    system: buildSystemPrompt(config),
-    messages: [{ role: "user", content: `Here is the git diff to review:\n\n${diff}` }],
+    system: systemPrompt,
+    messages: [{ role: "user", content: userMessage }],
   });
 
   const textBlock = response.content.find((b) => b.type === "text");
   if (!textBlock || textBlock.type !== "text") {
     throw new Error("Model did not return a text response");
   }
+  return textBlock.text;
+}
 
-  const cleaned = textBlock.text.replace(/```json|```/g, "").trim();
-  const parsed = JSON.parse(cleaned);
-  return parsed.issues ?? [];
+export async function reviewDiff(diff: string, config: ReviewConfig): Promise<ReviewIssue[]> {
+  const systemPrompt = buildSystemPrompt(config);
+  const userMessage = `Here is the git diff to review:\n\n${diff}`;
+
+  const firstAttempt = await callModel(systemPrompt, userMessage);
+
+  try {
+    return parseIssuesResponse(firstAttempt);
+  } catch {
+    // one retry: ask the model to fix the format
+    console.log("⚠️  Invalid response format, retrying once...");
+    const retryMessage = `${userMessage}\n\nYour previous response was not valid JSON. Respond with ONLY a valid JSON object, no markdown formatting, no extra text.`;
+    const secondAttempt = await callModel(systemPrompt, retryMessage);
+    return parseIssuesResponse(secondAttempt); // if this throws too, let it propagate
+  }
 }
